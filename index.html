@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="NBA 輪盤">
+    <meta name="description" content="NBA 30 支球隊抽籤輪盤，含抽籤紀錄與自動存檔">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <title>NBA 30 支球隊幸運大輪盤</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-color: #38bdf8;
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            --danger-color: #ef4444;
+            --success-color: #22c55e;
+            --nav-height: 60px;
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --safe-top: env(safe-area-inset-top, 0px);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Segoe UI", Roboto, "Helvetica Neue", "Microsoft JhengHei", Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html {
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+            background-color: var(--bg-color);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            min-height: 100dvh; /* iOS Safari 網址列伸縮時不跑版 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
+            padding-left: env(safe-area-inset-left, 0px);
+            padding-right: env(safe-area-inset-right, 0px);
+            overscroll-behavior-y: none;
+        }
+
+        button, input {
+            touch-action: manipulation; /* 防止 iOS 雙擊放大 */
+        }
+
+        /* 標頭區 */
+        header {
+            width: 100%;
+            text-align: center;
+            padding: calc(16px + var(--safe-top)) 12px 10px;
+            background: rgba(30, 41, 59, 0.85);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            position: -webkit-sticky;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            color: #38bdf8; /* 漸層不支援時的後備顏色 */
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        header p {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* 主要容器佈局 */
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            padding: 16px;
+        }
+
+        /* 電腦版：左欄輪盤、右欄紀錄＋球隊清單 */
+        @media (min-width: 992px) {
+            body { padding-bottom: 20px; }
+            .container {
+                display: grid;
+                grid-template-columns: 420px 1fr;
+                column-gap: 24px;
+                align-items: start;
+            }
+            #tab-wheel { grid-column: 1; grid-row: 1 / span 2; }
+            #tab-records { grid-column: 2; grid-row: 1; }
+            #tab-teams { grid-column: 2; grid-row: 2; }
+            .mobile-nav { display: none !important; }
+            .tab-content { display: block !important; }
+        }
+
+        /* 手機版：切換 Tab 分頁 */
+        @media (max-width: 991px) {
+            .tab-content { display: none; }
+            .tab-content.active { display: block; }
+        }
+
+        /* 卡片面板通用樣式 */
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            font-size: 1.15rem;
+            margin-bottom: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* 輪盤畫布區 */
+        .wheel-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* 用 padding-top 維持正方形，舊版 iOS 不支援 aspect-ratio 也能正常顯示 */
+        .wheel-container {
+            position: relative;
+            width: 100%;
+            max-width: 360px;
+            margin: 0 auto 16px;
+        }
+
+        .wheel-container::before {
+            content: "";
+            display: block;
+            padding-top: 100%;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.5), 0 0 20px rgba(56, 189, 248, 0.25);
+            display: block;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* 輪盤頂部頂針指標 */
+        .pointer {
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 14px solid transparent;
+            border-right: 14px solid transparent;
+            border-top: 26px solid var(--danger-color);
+            filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* 控制元件 */
+        .form-group { margin-bottom: 12px; }
+
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 14px;
+            background: #0f172a;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 16px; /* 16px 以上防止 iOS 聚焦時自動放大 */
+            outline: none;
+            transition: border-color 0.2s;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .form-control:focus { border-color: var(--accent-color); }
+
+        .switch-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #0f172a;
+            padding: 12px 14px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 48px;
+            height: 26px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #475569;
+            transition: .3s;
+            border-radius: 26px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px; width: 18px;
+            left: 4px; bottom: 4px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider { background-color: var(--success-color); }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+        /* 按鈕樣式 */
+        .btn {
+            width: 100%;
+            min-height: 48px;
+            padding: 12px;
+            font-size: 1.05rem;
+            font-weight: bold;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+        }
+
+        .btn-primary:active:not(:disabled) { transform: scale(0.98); }
+
+        .btn-primary:disabled {
+            background: #475569;
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .btn-sub {
+            background: #0f172a;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            font-size: 0.85rem;
+            min-height: 42px;
+        }
+
+        .btn-sub.danger {
+            color: var(--danger-color);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        /* 歷史紀錄表格 */
+        .table-container {
+            max-height: 420px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: #0f172a;
+            color: var(--text-muted);
+            font-weight: 600;
+            position: -webkit-sticky;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .team-badge-inline {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: bold;
+        }
+
+        .team-badge-inline img {
+            width: 22px;
+            height: 22px;
+            object-fit: contain;
+            flex-shrink: 0;
+        }
+
+        /* 球隊清單網格 */
+        .team-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 8px;
+            max-height: 380px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .team-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            background: #0f172a;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            border-left: 4px solid transparent;
+        }
+
+        .team-item img {
+            width: 20px;
+            height: 20px;
+            object-fit: contain;
+            flex-shrink: 0;
+        }
+
+        .team-item.removed {
+            opacity: 0.3;
+            text-decoration: line-through;
+        }
+
+        /* 手機底部分頁選單：高度含 iPhone 底部安全區 */
+        .mobile-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: calc(var(--nav-height) + var(--safe-bottom));
+            padding-bottom: var(--safe-bottom);
+            background: rgba(30, 41, 59, 0.95);
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-around;
+            align-items: stretch;
+            z-index: 50;
+        }
+
+        .nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .nav-item.active {
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+
+        .nav-item span.icon { font-size: 1.2rem; }
+
+        /* Modal 彈窗（中獎結果、確認對話框共用） */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.25s ease, visibility 0.25s ease;
+            padding: 20px;
+        }
+
+        .modal-overlay.active { opacity: 1; visibility: visible; pointer-events: auto; }
+
+        .modal {
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: 16px;
+            text-align: center;
+            max-width: 340px;
+            width: 100%;
+            transform: scale(0.85);
+            transition: transform 0.25s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        }
+
+        .modal-overlay.active .modal { transform: scale(1); }
+        .modal img { width: 90px; height: 90px; margin: 12px 0; object-fit: contain; }
+        .modal h3 { font-size: 1.4rem; margin-bottom: 4px; }
+        .modal .winner-person { color: var(--accent-color); font-weight: bold; font-size: 0.95rem; }
+        .modal p { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px; }
+
+        .btn-close {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            min-height: 44px;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .confirm-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .confirm-actions .btn-cancel {
+            background: #0f172a;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+
+        .confirm-actions .btn-danger { background: var(--danger-color); }
+
+        /* 安裝提示（iPhone Safari 加入主畫面 / 電腦安裝） */
+        .install-tip {
+            position: fixed;
+            left: 12px;
+            right: 12px;
+            bottom: calc(var(--nav-height) + var(--safe-bottom) + 12px);
+            max-width: 420px;
+            margin: 0 auto;
+            background: #1e3a5f;
+            border: 1px solid var(--accent-color);
+            color: var(--text-color);
+            border-radius: 12px;
+            padding: 12px 40px 12px 14px;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+            z-index: 60;
+            display: none;
+        }
+        .install-tip.show { display: block; }
+        .install-tip b { color: var(--accent-color); }
+        .install-tip .tip-close {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            cursor: pointer;
+        }
+        .install-tip .tip-install {
+            margin-top: 8px;
+            background: var(--accent-color);
+            color: #0f172a;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        @media (min-width: 992px) {
+            .install-tip { bottom: 20px; right: 20px; left: auto; }
+        }
+
+        #confirmMessage {
+            color: var(--text-color);
+            font-size: 1rem;
+            margin: 8px 0 20px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🏀 NBA 30 支球隊大輪盤</h1>
+        <p>跨平台 RWD 支援 | 抽籤紀錄 | 自動存檔</p>
+    </header>
+
+    <div class="container">
+
+        <!-- Tab 1: 輪盤區域 -->
+        <div id="tab-wheel" class="tab-content active">
+            <div class="card wheel-wrapper">
+                <div class="wheel-container" id="wheelContainer">
+                    <div class="pointer"></div>
+                    <canvas id="wheelCanvas" aria-label="NBA 球隊輪盤，點擊可旋轉"></canvas>
+                </div>
+
+                <div style="width: 100%;">
+                    <div class="form-group">
+                        <label for="participantInput">👤 當前抽籤人：</label>
+                        <input type="text" id="participantInput" class="form-control" placeholder="輸入姓名" value="玩家 1" autocomplete="off" autocorrect="off" enterkeyhint="done">
+                    </div>
+
+                    <div class="switch-group">
+                        <span>抽中後自動移除球隊</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="removeModeToggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <button id="spinBtn" class="btn btn-primary" type="button">🎰 開始旋轉抽籤！</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2 & 3 右側卡片 (電腦版並排，手機版分頁切換) -->
+        <div id="tab-records" class="tab-content">
+            <div class="card">
+                <h2>
+                    <span>📜 抽籤歷史紀錄</span>
+                    <span id="recordCount" style="color: var(--accent-color); font-size: 0.85rem;">共 0 筆</span>
+                </h2>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 45px;">#</th>
+                                <th>抽籤人</th>
+                                <th>抽中球隊</th>
+                                <th>時間</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyBody"></tbody>
+                    </table>
+                </div>
+                <div class="btn-group">
+                    <button id="exportBtn" class="btn btn-sub" type="button">📥 匯出 CSV</button>
+                    <button id="resetHistoryBtn" class="btn btn-sub danger" type="button">🗑️ 清空紀錄</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-teams" class="tab-content">
+            <div class="card">
+                <h2>
+                    <span>🏀 輪盤剩餘球隊</span>
+                    <span id="teamCount" style="color: var(--accent-color); font-size: 0.85rem;">30 / 30</span>
+                </h2>
+                <div id="teamGrid" class="team-grid"></div>
+                <button id="resetTeamsBtn" class="btn btn-sub danger" type="button" style="margin-top: 12px;">↺ 還原全部 30 支球隊</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 手機版底部分頁導覽列 -->
+    <nav class="mobile-nav">
+        <button class="nav-item active" data-tab="tab-wheel" type="button">
+            <span class="icon">🎯</span>
+            <span>輪盤抽籤</span>
+        </button>
+        <button class="nav-item" data-tab="tab-records" type="button">
+            <span class="icon">📜</span>
+            <span>歷史紀錄</span>
+        </button>
+        <button class="nav-item" data-tab="tab-teams" type="button">
+            <span class="icon">🏀</span>
+            <span>球隊清單</span>
+        </button>
+    </nav>
+
+    <!-- 中獎結果 Modal -->
+    <div id="resultModal" class="modal-overlay">
+        <div class="modal">
+            <h2>🎉 🎉 🎉</h2>
+            <div id="modalPerson" class="winner-person"></div>
+            <img id="modalLogo" alt="Team Logo">
+            <h3 id="modalTeamName">球隊名稱</h3>
+            <p id="modalStatusText"></p>
+            <button id="closeModalBtn" class="btn-close" type="button">確定記錄</button>
+        </div>
+    </div>
+
+    <!-- 自製確認 / 提示視窗（取代 confirm / alert，部分 App 內建瀏覽器會封鎖原生對話框） -->
+    <div id="confirmModal" class="modal-overlay">
+        <div class="modal">
+            <div id="confirmMessage"></div>
+            <div class="confirm-actions" id="confirmActions">
+                <button id="confirmCancelBtn" class="btn-close btn-cancel" type="button">取消</button>
+                <button id="confirmOkBtn" class="btn-close btn-danger" type="button">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 安裝為 App 的提示 -->
+    <div id="installTip" class="install-tip" role="status">
+        <button class="tip-close" id="installTipClose" type="button" aria-label="關閉">✕</button>
+        <div id="installTipText"></div>
+        <button class="tip-install" id="installTipBtn" type="button" style="display:none;">安裝 App</button>
+    </div>
+
+    <script>
+    (function () {
+        'use strict';
+
+        // 30 支 NBA 球隊數據
+        var allTeams = [
+            { id: 'atl', name: '亞特蘭大老鷹', short: '老鷹', abbr: 'atl', color: '#E03A3E' },
+            { id: 'bos', name: '波士頓塞爾提克', short: '塞爾提克', abbr: 'bos', color: '#007A33' },
+            { id: 'bkn', name: '布魯克林籃網', short: '籃網', abbr: 'bkn', color: '#111111' },
+            { id: 'cha', name: '夏洛特黃蜂', short: '黃蜂', abbr: 'cha', color: '#00788C' },
+            { id: 'chi', name: '芝加哥公牛', short: '公牛', abbr: 'chi', color: '#CE1141' },
+            { id: 'cle', name: '克里夫蘭騎士', short: '騎士', abbr: 'cle', color: '#860038' },
+            { id: 'dal', name: '達拉斯獨行俠', short: '獨行俠', abbr: 'dal', color: '#00538C' },
+            { id: 'den', name: '丹佛金塊', short: '金塊', abbr: 'den', color: '#0E2240' },
+            { id: 'det', name: '底特律活塞', short: '活塞', abbr: 'det', color: '#C8102E' },
+            { id: 'gsw', name: '金州勇士', short: '勇士', abbr: 'gs', color: '#1D428A' },
+            { id: 'hou', name: '休士頓火箭', short: '火箭', abbr: 'hou', color: '#CE1141' },
+            { id: 'ind', name: '印第安納溜馬', short: '溜馬', abbr: 'ind', color: '#002D62' },
+            { id: 'lac', name: '洛杉磯快艇', short: '快艇', abbr: 'lac', color: '#C8102E' },
+            { id: 'lal', name: '洛杉磯湖人', short: '湖人', abbr: 'lal', color: '#552583' },
+            { id: 'mem', name: '孟菲斯灰熊', short: '灰熊', abbr: 'mem', color: '#5D76A9' },
+            { id: 'mia', name: '邁阿密熱火', short: '熱火', abbr: 'mia', color: '#98002E' },
+            { id: 'mil', name: '密爾瓦基公鹿', short: '公鹿', abbr: 'mil', color: '#00471B' },
+            { id: 'min', name: '明尼蘇達灰狼', short: '灰狼', abbr: 'min', color: '#0C2340' },
+            { id: 'nop', name: '紐奧良鵜鶘', short: '鵜鶘', abbr: 'no', color: '#0C2340' },
+            { id: 'nyk', name: '紐約尼克', short: '尼克', abbr: 'ny', color: '#006BB6' },
+            { id: 'okc', name: '奧克拉荷馬雷霆', short: '雷霆', abbr: 'okc', color: '#007AC1' },
+            { id: 'orl', name: '奧蘭多魔術', short: '魔術', abbr: 'orl', color: '#0077C0' },
+            { id: 'phi', name: '費城76人', short: '76人', abbr: 'phi', color: '#006BB6' },
+            { id: 'phx', name: '鳳凰城太陽', short: '太陽', abbr: 'phx', color: '#E56020' },
+            { id: 'por', name: '波特蘭拓荒者', short: '拓荒者', abbr: 'por', color: '#E03A3E' },
+            { id: 'sac', name: '沙加緬度國王', short: '國王', abbr: 'sac', color: '#5A2D81' },
+            { id: 'sas', name: '聖安東尼奧馬刺', short: '馬刺', abbr: 'sa', color: '#222222' },
+            { id: 'tor', name: '多倫多暴龍', short: '暴龍', abbr: 'tor', color: '#CE1141' },
+            { id: 'uta', name: '猶他爵士', short: '爵士', abbr: 'utah', color: '#002B5C' },
+            { id: 'was', name: '華盛頓巫師', short: '巫師', abbr: 'wsh', color: '#002B5C' }
+        ];
+
+        var teamById = {};
+        allTeams.forEach(function (t) { teamById[t.id] = t; });
+
+        function logoUrl(team) {
+            return 'https://a.espncdn.com/i/teamlogos/nba/500/' + team.abbr + '.png';
+        }
+
+        var activeTeams = allTeams.slice();
+        var historyRecords = [];
+        var currentRotation = 0;
+        var isSpinning = false;
+        var loadedImages = {};
+        var lastCssSize = 0;
+
+        var $ = function (id) { return document.getElementById(id); };
+        var canvas = $('wheelCanvas');
+        var ctx = canvas.getContext('2d');
+        var wheelContainer = $('wheelContainer');
+        var spinBtn = $('spinBtn');
+        var exportBtn = $('exportBtn');
+        var resetHistoryBtn = $('resetHistoryBtn');
+        var resetTeamsBtn = $('resetTeamsBtn');
+        var participantInput = $('participantInput');
+        var removeModeToggle = $('removeModeToggle');
+        var historyBody = $('historyBody');
+        var recordCount = $('recordCount');
+        var teamGrid = $('teamGrid');
+        var teamCount = $('teamCount');
+        var resultModal = $('resultModal');
+        var modalPerson = $('modalPerson');
+        var modalLogo = $('modalLogo');
+        var modalTeamName = $('modalTeamName');
+        var modalStatusText = $('modalStatusText');
+        var closeModalBtn = $('closeModalBtn');
+        var confirmModal = $('confirmModal');
+        var confirmMessage = $('confirmMessage');
+        var confirmOkBtn = $('confirmOkBtn');
+        var confirmCancelBtn = $('confirmCancelBtn');
+
+        var STORAGE_KEY = 'nba_wheel_mobile_save';
+
+        // ---------- 安全的本地儲存（iOS 無痕模式 / App 內建瀏覽器可能丟出錯誤）----------
+        var storage = {
+            get: function (key) {
+                try { return window.localStorage.getItem(key); } catch (e) { return null; }
+            },
+            set: function (key, value) {
+                try { window.localStorage.setItem(key, value); } catch (e) { /* 無法存檔時忽略，不中斷抽籤 */ }
+            }
+        };
+
+        // ---------- 自製確認視窗 ----------
+        var confirmCallback = null;
+        function showConfirm(message, onOk, okOnly) {
+            confirmMessage.textContent = message;
+            confirmCancelBtn.style.display = okOnly ? 'none' : '';
+            $('confirmActions').style.gridTemplateColumns = okOnly ? '1fr' : '1fr 1fr';
+            confirmOkBtn.className = okOnly ? 'btn-close' : 'btn-close btn-danger';
+            confirmCallback = onOk || null;
+            confirmModal.classList.add('active');
+        }
+        function closeConfirm() {
+            confirmModal.classList.remove('active');
+            confirmCallback = null;
+        }
+        confirmOkBtn.addEventListener('click', function () {
+            var cb = confirmCallback;
+            closeConfirm();
+            if (cb) cb();
+        });
+        confirmCancelBtn.addEventListener('click', closeConfirm);
+        confirmModal.addEventListener('click', function (e) { if (e.target === confirmModal) closeConfirm(); });
+
+        // ---------- Canvas 高解析度縮放 ----------
+        function getDpr() {
+            // iPhone 為 3x，限制上限避免超過 iOS Canvas 記憶體上限
+            return Math.min(window.devicePixelRatio || 1, 3);
+        }
+
+        function resizeCanvas(force) {
+            var size = wheelContainer.clientWidth;
+            if (!size) return; // 分頁隱藏時寬度為 0，切回時再畫
+            if (!force && size === lastCssSize) return; // iOS 捲動時網址列伸縮也會觸發 resize，尺寸沒變就跳過
+            lastCssSize = size;
+            var dpr = getDpr();
+            canvas.width = Math.round(size * dpr);
+            canvas.height = Math.round(size * dpr);
+            drawWheel();
+        }
+
+        // ---------- 預載入球隊 Logo ----------
+        // 不設定 crossOrigin：只是把圖畫到 Canvas 上，不需要 CORS；設定了反而可能在部分瀏覽器載入失敗
+        function preloadLogos() {
+            allTeams.forEach(function (team) {
+                var img = new Image();
+                img.onload = function () {
+                    loadedImages[team.id] = img;
+                    if (!isSpinning) drawWheel();
+                };
+                img.onerror = function () { /* 載入失敗就顯示縮寫文字 */ };
+                img.src = logoUrl(team);
+            });
+        }
+
+        // ---------- 繪製輪盤 ----------
+        function drawWheel() {
+            var numTeams = activeTeams.length;
+            var width = canvas.width;
+            var height = canvas.height;
+            if (width === 0 || height === 0) return;
+
+            var dpr = getDpr();
+            var centerX = width / 2;
+            var centerY = height / 2;
+            var radius = width / 2 - 10 * dpr;
+
+            ctx.clearRect(0, 0, width, height);
+
+            if (numTeams === 0) {
+                ctx.fillStyle = '#475569';
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold ' + (22 * dpr) + 'px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('所有球隊已抽完！', centerX, centerY);
+                return;
+            }
+
+            var angleStep = (Math.PI * 2) / numTeams;
+            var cssRadius = radius / dpr;
+            // Logo 大小依扇形寬度與畫布大小調整，小螢幕也不會擠在一起
+            var arcWidth = 2 * cssRadius * 0.72 * Math.sin(Math.min(angleStep, Math.PI / 2) / 2);
+            var logoSize = Math.max(18, Math.min(55, arcWidth * 0.85, cssRadius * 0.35)) * dpr;
+
+            for (var i = 0; i < numTeams; i++) {
+                var team = activeTeams[i];
+                var startAngle = currentRotation + i * angleStep;
+                var endAngle = startAngle + angleStep;
+
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+                ctx.closePath();
+                ctx.fillStyle = team.color;
+                ctx.fill();
+
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+                ctx.lineWidth = 1.5 * dpr;
+                ctx.stroke();
+
+                var midAngle = startAngle + angleStep / 2;
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(midAngle);
+
+                var logoDist = radius * 0.72;
+                var img = loadedImages[team.id];
+                if (img) {
+                    ctx.drawImage(img, logoDist - logoSize / 2, -logoSize / 2, logoSize, logoSize);
+                } else {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold ' + Math.max(10, Math.min(16, logoSize / dpr * 0.5)) * dpr + 'px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(team.id.toUpperCase(), logoDist, 0);
+                }
+                ctx.restore();
+            }
+
+            // 中心圓
+            var hubR = Math.min(42, cssRadius * 0.24) * dpr;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, hubR, 0, Math.PI * 2);
+            ctx.fillStyle = '#0f172a';
+            ctx.fill();
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 4 * dpr;
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold ' + (hubR * 0.46) + 'px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('NBA', centerX, centerY);
+        }
+
+        // ---------- 旋轉動畫 ----------
+        var raf = window.requestAnimationFrame || function (cb) { return setTimeout(function () { cb(Date.now()); }, 16); };
+        var now = function () { return (window.performance && performance.now) ? performance.now() : Date.now(); };
+
+        function spin() {
+            if (isSpinning) return;
+            if (activeTeams.length === 0) {
+                showConfirm('所有球隊都已抽完，請到「球隊清單」還原後再抽。', null, true);
+                return;
+            }
+            if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // 收起 iOS 鍵盤
+
+            var participant = participantInput.value.trim() || '匿名參加者';
+
+            isSpinning = true;
+            spinBtn.disabled = true;
+
+            var totalRotation = Math.PI * 2 * (5 + Math.random() * 3);
+            var duration = 4000;
+            var startRotation = currentRotation;
+            var startTime = now();
+
+            function animate() {
+                var elapsed = now() - startTime;
+                var progress = Math.min(elapsed / duration, 1);
+                var easeOut = 1 - Math.pow(1 - progress, 3);
+
+                currentRotation = startRotation + totalRotation * easeOut;
+                drawWheel();
+
+                if (progress < 1) {
+                    raf(animate);
+                } else {
+                    currentRotation = currentRotation % (Math.PI * 2);
+                    isSpinning = false;
+                    spinBtn.disabled = false;
+                    try { if (navigator.vibrate) navigator.vibrate([100, 50, 100]); } catch (e) {}
+                    calculateWinner(participant);
+                }
+            }
+            raf(animate);
+        }
+
+        // ---------- 計算結果與紀錄 ----------
+        function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+        function calculateWinner(participant) {
+            var numTeams = activeTeams.length;
+            var angleStep = (Math.PI * 2) / numTeams;
+
+            var normalizedRotation = currentRotation % (Math.PI * 2);
+            var pointerAngle = (1.5 * Math.PI - normalizedRotation) % (Math.PI * 2);
+            if (pointerAngle < 0) pointerAngle += Math.PI * 2;
+
+            var winningIndex = Math.min(Math.floor(pointerAngle / angleStep), numTeams - 1);
+            var winner = activeTeams[winningIndex];
+
+            var d = new Date();
+            var timeString = pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+
+            historyRecords.unshift({
+                participant: participant,
+                teamId: winner.id,
+                teamName: winner.name,
+                teamColor: winner.color,
+                time: timeString
+            });
+
+            var isRemoveMode = removeModeToggle.checked;
+            if (isRemoveMode) activeTeams.splice(winningIndex, 1);
+
+            // 先顯示結果，再存檔，確保存檔失敗也不影響畫面
+            modalPerson.textContent = '抽籤人：' + participant;
+            modalLogo.src = logoUrl(winner);
+            modalTeamName.textContent = winner.name;
+            modalStatusText.textContent = isRemoveMode ? '（已自動從輪盤中移除）' : '（球隊繼續保留於輪盤）';
+            resultModal.classList.add('active');
+
+            updateHistoryTable();
+            updateSidebar();
+            drawWheel();
+            saveData();
+        }
+
+        // ---------- 歷史紀錄表格 ----------
+        function updateHistoryTable() {
+            recordCount.textContent = '共 ' + historyRecords.length + ' 筆';
+            historyBody.innerHTML = '';
+
+            if (historyRecords.length === 0) {
+                historyBody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:16px;">尚無紀錄</td></tr>';
+                return;
+            }
+
+            historyRecords.forEach(function (rec, idx) {
+                var team = teamById[rec.teamId] || null;
+                var tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td style="color:var(--text-muted);">' + (historyRecords.length - idx) + '</td>' +
+                    '<td style="font-weight:600;">' + escapeHtml(rec.participant) + '</td>' +
+                    '<td><div class="team-badge-inline">' +
+                        (team ? '<img src="' + logoUrl(team) + '" alt="" loading="lazy">' : '') +
+                        '<span style="color:' + (rec.teamColor || '#fff') + '">' + escapeHtml(rec.teamName) + '</span>' +
+                    '</div></td>' +
+                    '<td style="color:var(--text-muted); font-size:0.8rem;">' + rec.time + '</td>';
+                historyBody.appendChild(tr);
+            });
+        }
+
+        // ---------- 球隊清單 ----------
+        function updateSidebar() {
+            teamCount.textContent = activeTeams.length + ' / ' + allTeams.length;
+            teamGrid.innerHTML = '';
+
+            allTeams.forEach(function (team) {
+                var isActive = activeTeams.some(function (t) { return t.id === team.id; });
+                var item = document.createElement('div');
+                item.className = 'team-item' + (isActive ? '' : ' removed');
+                item.style.borderLeftColor = team.color;
+                item.innerHTML = '<img src="' + logoUrl(team) + '" alt="" loading="lazy"><span>' + team.short + '</span>';
+                teamGrid.appendChild(item);
+            });
+        }
+
+        // ---------- 存檔 / 讀檔 ----------
+        function saveData() {
+            storage.set(STORAGE_KEY, JSON.stringify({
+                activeTeamIds: activeTeams.map(function (t) { return t.id; }),
+                historyRecords: historyRecords,
+                removeMode: removeModeToggle.checked,
+                lastParticipant: participantInput.value
+            }));
+        }
+
+        function loadData() {
+            var raw = storage.get(STORAGE_KEY);
+            if (!raw) return;
+            try {
+                var data = JSON.parse(raw);
+                if (Array.isArray(data.activeTeamIds)) {
+                    activeTeams = allTeams.filter(function (t) { return data.activeTeamIds.indexOf(t.id) !== -1; });
+                }
+                if (Array.isArray(data.historyRecords)) {
+                    // 相容舊版存檔（舊版用 teamAbbr 存）
+                    historyRecords = data.historyRecords.map(function (r) {
+                        if (!r.teamId && r.teamAbbr) r.teamId = r.teamAbbr;
+                        return r;
+                    });
+                }
+                if (typeof data.removeMode === 'boolean') removeModeToggle.checked = data.removeMode;
+                if (data.lastParticipant) participantInput.value = data.lastParticipant;
+            } catch (e) {
+                console.error('無效的存檔數據', e);
+            }
+        }
+
+        // ---------- CSV 匯出（iPhone 改用分享選單，可存到「檔案」或傳 LINE）----------
+        function exportCSV() {
+            if (historyRecords.length === 0) {
+                showConfirm('沒有紀錄可供匯出！', null, true);
+                return;
+            }
+
+            var csv = '\uFEFF序號,抽籤人,抽中球隊,時間\n';
+            historyRecords.forEach(function (rec, idx) {
+                csv += '"' + (historyRecords.length - idx) + '","' +
+                    String(rec.participant).replace(/"/g, '""') + '","' +
+                    rec.teamName + '","' + rec.time + '"\n';
+            });
+
+            var fileName = 'NBA_Wheel_Records_' + new Date().toISOString().slice(0, 10) + '.csv';
+            var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+            var isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+                        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+            if (isIOS && navigator.share && navigator.canShare && typeof File !== 'undefined') {
+                try {
+                    var file = new File([blob], fileName, { type: 'text/csv' });
+                    if (navigator.canShare({ files: [file] })) {
+                        navigator.share({ files: [file], title: fileName }).catch(function () {});
+                        return;
+                    }
+                } catch (e) { /* 改用下載方式 */ }
+            }
+
+            var url = URL.createObjectURL(blob);
+            var link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            link.style.display = 'none';
+            document.body.appendChild(link); // 必須加入 DOM，Safari 才會觸發下載
+            link.click();
+            setTimeout(function () {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }, 1000);
+        }
+
+        // ---------- 手機導覽列切換 Tab ----------
+        Array.prototype.forEach.call(document.querySelectorAll('.nav-item'), function (btn) {
+            btn.addEventListener('click', function () {
+                Array.prototype.forEach.call(document.querySelectorAll('.nav-item'), function (b) { b.classList.remove('active'); });
+                Array.prototype.forEach.call(document.querySelectorAll('.tab-content'), function (t) { t.classList.remove('active'); });
+
+                btn.classList.add('active');
+                var targetTab = $(btn.dataset.tab);
+                if (targetTab) targetTab.classList.add('active');
+                window.scrollTo(0, 0);
+
+                if (btn.dataset.tab === 'tab-wheel') {
+                    setTimeout(function () { resizeCanvas(true); }, 30);
+                }
+            });
+        });
+
+        // ---------- 重置 ----------
+        resetHistoryBtn.addEventListener('click', function () {
+            showConfirm('確定要清空所有抽籤紀錄嗎？', function () {
+                historyRecords = [];
+                saveData();
+                updateHistoryTable();
+            });
+        });
+
+        resetTeamsBtn.addEventListener('click', function () {
+            showConfirm('確定要還原全部 30 支球隊嗎？', function () {
+                activeTeams = allTeams.slice();
+                saveData();
+                updateSidebar();
+                drawWheel();
+            });
+        });
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>"']/g, function (m) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+            });
+        }
+
+        // ---------- 事件監聽 ----------
+        spinBtn.addEventListener('click', spin);
+        canvas.addEventListener('click', spin); // 點輪盤本身也能轉
+        exportBtn.addEventListener('click', exportCSV);
+        removeModeToggle.addEventListener('change', saveData);
+        participantInput.addEventListener('input', saveData);
+        participantInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') participantInput.blur();
+        });
+        closeModalBtn.addEventListener('click', function () { resultModal.classList.remove('active'); });
+        resultModal.addEventListener('click', function (e) {
+            if (e.target === resultModal) resultModal.classList.remove('active');
+        });
+
+        if (window.ResizeObserver) {
+            new ResizeObserver(function () { resizeCanvas(false); }).observe(wheelContainer);
+        } else {
+            window.addEventListener('resize', function () { resizeCanvas(false); });
+        }
+        window.addEventListener('orientationchange', function () {
+            setTimeout(function () { resizeCanvas(true); }, 300);
+        });
+        // 從背景切回（iOS 有時會清掉 Canvas 內容）
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) resizeCanvas(true);
+        });
+        window.addEventListener('pageshow', function () { resizeCanvas(true); });
+
+        // ---------- 初始化 ----------
+        loadData();
+        updateHistoryTable();
+        updateSidebar();
+        resizeCanvas(true);
+        setTimeout(function () { resizeCanvas(true); }, 100);
+        preloadLogos();
+
+        // ---------- PWA：離線快取 ----------
+        if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('sw.js').catch(function (e) {
+                    console.warn('Service Worker 註冊失敗', e);
+                });
+            });
+        }
+
+        // ---------- PWA：安裝提示 ----------
+        var TIP_KEY = 'nba_wheel_install_tip_closed';
+        var installTip = $('installTip');
+        var installTipText = $('installTipText');
+        var installTipBtn = $('installTipBtn');
+        var deferredPrompt = null;
+
+        var isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                           window.navigator.standalone === true;
+        var ua = navigator.userAgent;
+        var isIOSDevice = /iP(hone|ad|od)/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        var isIOSSafari = isIOSDevice && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|Line|FBAN|FBAV|Instagram/.test(ua);
+
+        function showTip(html, withButton) {
+            if (isStandalone || storage.get(TIP_KEY)) return;
+            installTipText.innerHTML = html;
+            installTipBtn.style.display = withButton ? '' : 'none';
+            installTip.classList.add('show');
+        }
+
+        $('installTipClose').addEventListener('click', function () {
+            installTip.classList.remove('show');
+            storage.set(TIP_KEY, '1');
+        });
+
+        if (/^https?:$/.test(location.protocol)) {
+            if (isIOSSafari) {
+                setTimeout(function () {
+                    showTip('📱 想像 App 一樣使用？<br>點下方 <b>分享按鈕 ⬆︎</b>，再選 <b>「加入主畫面」</b>。', false);
+                }, 1500);
+            } else if (isIOSDevice) {
+                setTimeout(function () {
+                    showTip('📱 請用 <b>Safari</b> 開啟此網址，才能「加入主畫面」變成 App。', false);
+                }, 1500);
+            }
+
+            // Android Chrome / 電腦 Chrome、Edge 支援一鍵安裝
+            window.addEventListener('beforeinstallprompt', function (e) {
+                e.preventDefault();
+                deferredPrompt = e;
+                showTip('💻 可以把輪盤安裝成 App，之後從桌面或主畫面直接開啟。', true);
+            });
+
+            installTipBtn.addEventListener('click', function () {
+                if (!deferredPrompt) return;
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function () {
+                    deferredPrompt = null;
+                    installTip.classList.remove('show');
+                });
+            });
+
+            window.addEventListener('appinstalled', function () {
+                installTip.classList.remove('show');
+            });
+        }
+    })();
+    </script>
+</body>
+</html>
